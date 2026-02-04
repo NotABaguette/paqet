@@ -40,8 +40,8 @@ func aplConf(conn *kcp.UDPSession, cfg *conf.KCP) {
 func smuxConf(cfg *conf.KCP) *smux.Config {
 	var sconf = smux.DefaultConfig()
 	sconf.Version = 2
-	sconf.KeepAliveInterval = 2 * time.Second
-	sconf.KeepAliveTimeout = 8 * time.Second
+	sconf.KeepAliveInterval = time.Duration(cfg.SmuxKeepAliveInterval) * time.Millisecond
+	sconf.KeepAliveTimeout = time.Duration(cfg.SmuxKeepAliveTimeout) * time.Millisecond
 	sconf.MaxFrameSize = 65535
 	sconf.MaxReceiveBuffer = cfg.Smuxbuf
 	sconf.MaxStreamBuffer = cfg.Streambuf

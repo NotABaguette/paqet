@@ -15,6 +15,12 @@ type RecvHandle struct {
 	handle *pcap.Handle
 }
 
+type TCPInfo struct {
+	Seq        uint32
+	PayloadLen int
+	Flags      conf.TCPF
+}
+
 func NewRecvHandle(cfg *conf.Network) (*RecvHandle, error) {
 	handle, err := newHandle(cfg)
 	if err != nil {
@@ -36,10 +42,10 @@ func NewRecvHandle(cfg *conf.Network) (*RecvHandle, error) {
 	return &RecvHandle{handle: handle}, nil
 }
 
-func (h *RecvHandle) Read() ([]byte, net.Addr, error) {
+func (h *RecvHandle) Read() ([]byte, net.Addr, *TCPInfo, error) {
 	data, _, err := h.handle.ZeroCopyReadPacketData()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	addr := &net.UDPAddr{}
@@ -47,7 +53,7 @@ func (h *RecvHandle) Read() ([]byte, net.Addr, error) {
 
 	netLayer := p.NetworkLayer()
 	if netLayer == nil {
-		return nil, addr, nil
+		return nil, addr, nil, nil
 	}
 	switch netLayer.LayerType() {
 	case layers.LayerTypeIPv4:
@@ -58,20 +64,40 @@ func (h *RecvHandle) Read() ([]byte, net.Addr, error) {
 
 	trLayer := p.TransportLayer()
 	if trLayer == nil {
-		return nil, addr, nil
+		return nil, addr, nil, nil
 	}
+	var tcpInfo *TCPInfo
 	switch trLayer.LayerType() {
 	case layers.LayerTypeTCP:
-		addr.Port = int(trLayer.(*layers.TCP).SrcPort)
+		tcpLayer := trLayer.(*layers.TCP)
+		addr.Port = int(tcpLayer.SrcPort)
+		tcpInfo = &TCPInfo{
+			Seq: tcpLayer.Seq,
+			Flags: conf.TCPF{
+				FIN: tcpLayer.FIN,
+				SYN: tcpLayer.SYN,
+				RST: tcpLayer.RST,
+				PSH: tcpLayer.PSH,
+				ACK: tcpLayer.ACK,
+				URG: tcpLayer.URG,
+				ECE: tcpLayer.ECE,
+				CWR: tcpLayer.CWR,
+				NS:  tcpLayer.NS,
+			},
+		}
 	case layers.LayerTypeUDP:
 		addr.Port = int(trLayer.(*layers.UDP).SrcPort)
 	}
 
 	appLayer := p.ApplicationLayer()
 	if appLayer == nil {
-		return nil, addr, nil
+		return nil, addr, tcpInfo, nil
 	}
-	return appLayer.Payload(), addr, nil
+	payload := appLayer.Payload()
+	if tcpInfo != nil {
+		tcpInfo.PayloadLen = len(payload)
+	}
+	return payload, addr, tcpInfo, nil
 }
 
 func (h *RecvHandle) Close() {

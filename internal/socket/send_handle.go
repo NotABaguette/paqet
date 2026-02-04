@@ -23,6 +23,12 @@ type TCPF struct {
 	mu         sync.RWMutex
 }
 
+type flowState struct {
+	seq  uint32
+	ack  uint32
+	init bool
+}
+
 type SendHandle struct {
 	handle      *pcap.Handle
 	srcIPv4     net.IP
@@ -35,6 +41,9 @@ type SendHandle struct {
 	time        uint32
 	tsCounter   uint32
 	tcpF        TCPF
+	seqMode     string
+	flowMu      sync.RWMutex
+	flowState   map[uint64]*flowState
 	ethPool     sync.Pool
 	ipv4Pool    sync.Pool
 	ipv6Pool    sync.Pool
@@ -75,6 +84,8 @@ func NewSendHandle(cfg *conf.Network) (*SendHandle, error) {
 		synOptions: synOptions,
 		ackOptions: ackOptions,
 		tcpF:       TCPF{tcpF: iterator.Iterator[conf.TCPF]{Items: cfg.TCP.LF}, clientTCPF: make(map[uint64]*iterator.Iterator[conf.TCPF])},
+		seqMode:    cfg.TCP.SeqMode,
+		flowState:  make(map[uint64]*flowState),
 		time:       uint32(time.Now().UnixNano() / int64(time.Millisecond)),
 		ethPool: sync.Pool{
 			New: func() any {
@@ -141,7 +152,7 @@ func (h *SendHandle) buildIPv6Header(dstIP net.IP) *layers.IPv6 {
 	return ip
 }
 
-func (h *SendHandle) buildTCPHeader(dstPort uint16, f conf.TCPF) *layers.TCP {
+func (h *SendHandle) buildTCPHeader(dstIP net.IP, dstPort uint16, f conf.TCPF, payloadLen int) *layers.TCP {
 	tcp := h.tcpPool.Get().(*layers.TCP)
 	*tcp = layers.TCP{
 		SrcPort: layers.TCPPort(h.srcPort),
@@ -156,19 +167,27 @@ func (h *SendHandle) buildTCPHeader(dstPort uint16, f conf.TCPF) *layers.TCP {
 		binary.BigEndian.PutUint32(h.synOptions[2].OptionData[0:4], tsVal)
 		binary.BigEndian.PutUint32(h.synOptions[2].OptionData[4:8], 0)
 		tcp.Options = h.synOptions
-		tcp.Seq = 1 + (counter & 0x7)
-		tcp.Ack = 0
-		if f.ACK {
-			tcp.Ack = tcp.Seq + 1
+		if h.seqMode == "monotonic" {
+			h.setSeqAck(tcp, dstIP, dstPort, payloadLen, true)
+		} else {
+			tcp.Seq = 1 + (counter & 0x7)
+			tcp.Ack = 0
+			if f.ACK {
+				tcp.Ack = tcp.Seq + 1
+			}
 		}
 	} else {
 		tsEcr := tsVal - (counter%200 + 50)
 		binary.BigEndian.PutUint32(h.ackOptions[2].OptionData[0:4], tsVal)
 		binary.BigEndian.PutUint32(h.ackOptions[2].OptionData[4:8], tsEcr)
 		tcp.Options = h.ackOptions
-		seq := h.time + (counter << 7)
-		tcp.Seq = seq
-		tcp.Ack = seq - (counter & 0x3FF) + 1400
+		if h.seqMode == "monotonic" {
+			h.setSeqAck(tcp, dstIP, dstPort, payloadLen, false)
+		} else {
+			seq := h.time + (counter << 7)
+			tcp.Seq = seq
+			tcp.Ack = seq - (counter & 0x3FF) + 1400
+		}
 	}
 
 	return tcp
@@ -187,7 +206,7 @@ func (h *SendHandle) Write(payload []byte, addr *net.UDPAddr) error {
 	dstPort := uint16(addr.Port)
 
 	f := h.getClientTCPF(dstIP, dstPort)
-	tcpLayer := h.buildTCPHeader(dstPort, f)
+	tcpLayer := h.buildTCPHeader(dstIP, dstPort, f, len(payload))
 	defer h.tcpPool.Put(tcpLayer)
 
 	var ipLayer gopacket.SerializableLayer
@@ -228,6 +247,47 @@ func (h *SendHandle) setClientTCPF(addr net.Addr, f []conf.TCPF) {
 	h.tcpF.mu.Lock()
 	h.tcpF.clientTCPF[hash.IPAddr(a.IP, uint16(a.Port))] = &iterator.Iterator[conf.TCPF]{Items: f}
 	h.tcpF.mu.Unlock()
+}
+
+func (h *SendHandle) updateRemoteAck(addr net.Addr, info *TCPInfo) {
+	if h.seqMode != "monotonic" || info == nil {
+		return
+	}
+	a := addr.(*net.UDPAddr)
+	key := hash.IPAddr(a.IP, uint16(a.Port))
+	h.flowMu.Lock()
+	state := h.flowState[key]
+	if state == nil {
+		state = &flowState{}
+		h.flowState[key] = state
+	}
+	ack := info.Seq + uint32(info.PayloadLen)
+	if info.Flags.SYN || info.Flags.FIN {
+		ack++
+	}
+	state.ack = ack
+	h.flowMu.Unlock()
+}
+
+func (h *SendHandle) setSeqAck(tcp *layers.TCP, dstIP net.IP, dstPort uint16, payloadLen int, isSyn bool) {
+	key := hash.IPAddr(dstIP, dstPort)
+	h.flowMu.Lock()
+	state := h.flowState[key]
+	if state == nil {
+		state = &flowState{seq: h.time + (atomic.AddUint32(&h.tsCounter, 1) << 7)}
+		h.flowState[key] = state
+	}
+	tcp.Seq = state.seq
+	tcp.Ack = state.ack
+	if isSyn {
+		state.seq++
+	} else if payloadLen > 0 {
+		state.seq += uint32(payloadLen)
+	}
+	if tcp.FIN {
+		state.seq++
+	}
+	h.flowMu.Unlock()
 }
 
 func (h *SendHandle) Close() {
