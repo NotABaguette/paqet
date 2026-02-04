@@ -275,6 +275,7 @@ No encryption and no protocol header, data is transmitted in raw form without an
 **Network Configuration:** Use your actual IP address in `network.ipv4.addr`, not `127.0.0.1`. For servers, `network.ipv4.addr` and `listen.addr` ports must match. For clients, use port `0` in `network.ipv4.addr` to automatically assign a random available port and avoid conflicts.
 
 **TCP Flag Cycling:** The `network.tcp.local_flag` and `network.tcp.remote_flag` arrays cycle through flag combinations to vary traffic patterns. Common patterns: `["PA"]` (standard data), `["S"]` (connection setup), `["A"]` (acknowledgment).
+**TCP Sequence Mode:** `network.tcp.seq_mode` controls how sequence/ack numbers are generated. Use `"monotonic"` on strict conntracking networks to keep seq/ack numbers consistent per flow.
 
 # Architecture & Security Model
 
@@ -336,7 +337,13 @@ Security depends entirely on proper key management. Use the `secret` command to 
     - **Incorrect Network Details:** Double-check all IPs, MAC addresses, and interface names.
     - **Cloud Provider Firewalls:** Ensure your cloud provider's security group allows TCP traffic on your `listen.addr` port.
     - **NAT/Port Configuration:** For servers, ensure `listen.addr` and `network.ipv4.addr` ports match. For clients, use port `0` in `network.ipv4.addr` for automatic port assignment to avoid conflicts.
-3.  **Use `ping` and `dump`:** Use `paqet ping -c config.yaml` to test the connection. Use `paqet dump -p <PORT>` on the server to see if packets are arriving.
+3.  **Unexpected EOF / closed I/O connections:**
+    - **Kernel RST interference:** These symptoms are common when the server is missing the required `iptables` NOTRACK and RST-drop rules. Without them, the kernel sends RST packets that corrupt state and tear down the smux session.
+    - **Smux keepalive too aggressive for lossy links:** The default smux keepalive timeout is 8s. On restrictive or high-loss networks, that can lead to premature session closure. Increase `transport.kcp.smux_keepalive_interval` and `transport.kcp.smux_keepalive_timeout` (e.g., 5000/30000) on both client and server.
+    - **MTU and fragmentation:** Reduce `transport.kcp.mtu` (e.g., 1200 or 1250) to avoid fragmentation on hostile or tunneled paths.
+    - **Aggressive conntracking:** Set `network.tcp.seq_mode: "monotonic"` to keep TCP seq/ack values consistent per peer and reduce drops by strict middleboxes.
+    - **Enable FEC for loss:** If the network drops packets, set `dshard` and `pshard` to enable FEC.
+4.  **Use `ping` and `dump`:** Use `paqet ping -c config.yaml` to test the connection. Use `paqet dump -p <PORT>` on the server to see if packets are arriving.
 
 ## Acknowledgments
 

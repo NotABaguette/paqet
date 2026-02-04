@@ -30,6 +30,7 @@ network:
   # TCP flags for packet crafting (optional - will use defaults)
   tcp:
     local_flag: ["PA"]                       # Local TCP flags (Push+Ack default)
+    # seq_mode: "legacy"                     # "legacy" or "monotonic" (use monotonic for strict conntracking)
 
   # PCAP settings (optional - will use defaults)
   # pcap:
@@ -85,6 +86,8 @@ transport:
     # Buffer settings (optional)
     # smuxbuf: 4194304       # 4MB SMUX buffer
     # streambuf: 2097152     # 2MB stream buffer
+    # smux_keepalive_interval: 2000 # ms (increase for very restrictive networks)
+    # smux_keepalive_timeout: 8000  # ms (increase for higher tolerance to loss/delay)
 
 # Optional Forward Error Correction (FEC) - currently disabled
 # Use these only if you need FEC for very lossy networks:

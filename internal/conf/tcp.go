@@ -2,13 +2,15 @@ package conf
 
 import (
 	"fmt"
+	"slices"
 )
 
 type TCP struct {
-	LF_ []string `yaml:"local_flag"`
-	RF_ []string `yaml:"remote_flag"`
-	LF  []TCPF   `yaml:"-"`
-	RF  []TCPF   `yaml:"-"`
+	LF_     []string `yaml:"local_flag"`
+	RF_     []string `yaml:"remote_flag"`
+	SeqMode string   `yaml:"seq_mode"`
+	LF      []TCPF   `yaml:"-"`
+	RF      []TCPF   `yaml:"-"`
 }
 
 type TCPF struct {
@@ -21,6 +23,9 @@ func (t *TCP) setDefaults() {
 	}
 	if len(t.RF_) == 0 {
 		t.RF_ = []string{"PA"}
+	}
+	if t.SeqMode == "" {
+		t.SeqMode = "legacy"
 	}
 }
 
@@ -50,6 +55,10 @@ func (t *TCP) validate() []error {
 
 	if len(t.LF) == 0 || len(t.RF) == 0 {
 		errors = append(errors, fmt.Errorf("at least one TCP flag combination required"))
+	}
+	validSeqModes := []string{"legacy", "monotonic"}
+	if !slices.Contains(validSeqModes, t.SeqMode) {
+		errors = append(errors, fmt.Errorf("TCP seq_mode must be one of: %v", validSeqModes))
 	}
 	return errors
 }

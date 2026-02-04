@@ -27,6 +27,8 @@ type KCP struct {
 
 	Smuxbuf   int `yaml:"smuxbuf"`
 	Streambuf int `yaml:"streambuf"`
+	SmuxKeepAliveInterval int `yaml:"smux_keepalive_interval"`
+	SmuxKeepAliveTimeout  int `yaml:"smux_keepalive_timeout"`
 
 	Block kcp.BlockCrypt `yaml:"-"`
 }
@@ -71,6 +73,12 @@ func (k *KCP) setDefaults(role string) {
 	if k.Streambuf == 0 {
 		k.Streambuf = 2 * 1024 * 1024
 	}
+	if k.SmuxKeepAliveInterval == 0 {
+		k.SmuxKeepAliveInterval = 2000
+	}
+	if k.SmuxKeepAliveTimeout == 0 {
+		k.SmuxKeepAliveTimeout = 8000
+	}
 }
 
 func (k *KCP) validate() []error {
@@ -110,6 +118,15 @@ func (k *KCP) validate() []error {
 	}
 	if k.Streambuf < 1024 {
 		errors = append(errors, fmt.Errorf("KCP streambuf must be >= 1024 bytes"))
+	}
+	if k.SmuxKeepAliveInterval < 100 {
+		errors = append(errors, fmt.Errorf("KCP smux_keepalive_interval must be >= 100ms"))
+	}
+	if k.SmuxKeepAliveTimeout < 100 {
+		errors = append(errors, fmt.Errorf("KCP smux_keepalive_timeout must be >= 100ms"))
+	}
+	if k.SmuxKeepAliveTimeout < k.SmuxKeepAliveInterval {
+		errors = append(errors, fmt.Errorf("KCP smux_keepalive_timeout must be >= smux_keepalive_interval"))
 	}
 
 	return errors
