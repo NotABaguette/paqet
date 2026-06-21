@@ -20,6 +20,28 @@
 
 `paqet` use cases include bypassing firewalls that detect standard handshake protocols and kernel-level connection tracking, as well as network security research. While more complex to configure than general-purpose VPN solutions, it offers granular control at the packet level.
 
+### Serving Multiple Clients
+
+A single `paqet` server serves **multiple clients concurrently** — the diagram
+above shows one client only for clarity. The KCP listener demultiplexes peers by
+their source IP:port, so each client (with a distinct source address) gets an
+independent transport session. You do **not** need one server per client.
+
+This is verified end-to-end by [`test/integration/multiclient.sh`](test/integration/multiclient.sh),
+which runs one server against two clients over the real raw-socket path.
+
+Caveats for the current model:
+
+- **Shared key, no per-client identity.** All clients authenticate with the same
+  `transport.kcp.key`; the server cannot distinguish, authorize, limit, or revoke
+  individual clients beyond the source address it observes.
+- **Demux is by source IP:port.** Clients behind the same NAT work as long as the
+  NAT assigns each a distinct external port. A NAT that rebinds a client's port
+  mid-session (e.g. some symmetric NATs) can interrupt that client until it
+  reconnects.
+- **No per-client resource limits.** A single client can consume a large share of
+  server resources; there is no built-in cap on clients or per-client streams.
+
 ## Getting Started
 
 ### Prerequisites
