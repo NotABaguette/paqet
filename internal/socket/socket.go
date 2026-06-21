@@ -2,12 +2,15 @@ package socket
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net"
 	"os"
 	"sync/atomic"
 	"time"
+
+	"github.com/gopacket/gopacket/pcap"
 
 	"paqet/internal/conf"
 )
@@ -60,21 +63,24 @@ func (c *PacketConn) ReadFrom(data []byte) (n int, addr net.Addr, err error) {
 		deadline = timer.C
 	}
 
-	select {
-	case <-c.ctx.Done():
-		return 0, nil, c.ctx.Err()
-	case <-deadline:
-		return 0, nil, os.ErrDeadlineExceeded
-	default:
-	}
+	for {
+		select {
+		case <-c.ctx.Done():
+			return 0, nil, c.ctx.Err()
+		case <-deadline:
+			return 0, nil, os.ErrDeadlineExceeded
+		default:
+		}
 
-	payload, addr, err := c.recvHandle.Read()
-	if err != nil {
-		return 0, nil, err
+		payload, addr, err := c.recvHandle.Read()
+		if err != nil {
+			if errors.Is(err, pcap.NextErrorTimeoutExpired) {
+				continue
+			}
+			return 0, nil, err
+		}
+		return copy(data, payload), addr, nil
 	}
-	n = copy(data, payload)
-
-	return n, addr, nil
 }
 
 func (c *PacketConn) WriteTo(data []byte, addr net.Addr) (n int, err error) {
@@ -111,10 +117,10 @@ func (c *PacketConn) Close() error {
 	c.cancel()
 
 	if c.sendHandle != nil {
-		go c.sendHandle.Close()
+		c.sendHandle.Close()
 	}
 	if c.recvHandle != nil {
-		go c.recvHandle.Close()
+		c.recvHandle.Close()
 	}
 
 	return nil

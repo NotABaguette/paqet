@@ -42,7 +42,7 @@ type SendHandle struct {
 }
 
 func NewSendHandle(cfg *conf.Network) (*SendHandle, error) {
-	handle, err := newHandle(cfg)
+	handle, err := newHandle(cfg, pcap.BlockForever)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open pcap handle: %w", err)
 	}
