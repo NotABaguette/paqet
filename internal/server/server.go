@@ -42,6 +42,7 @@ func (s *Server) Start() error {
 	if err != nil {
 		return fmt.Errorf("could not create raw packet conn: %w", err)
 	}
+	defer pConn.Close()
 	s.pConn = pConn
 
 	listener, err := kcp.Listen(s.cfg.Transport.KCP, pConn)

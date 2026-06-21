@@ -12,9 +12,8 @@ import (
 )
 
 type Listener struct {
-	packetConn *socket.PacketConn
-	cfg        *conf.KCP
-	listener   *kcp.Listener
+	cfg      *conf.KCP
+	listener *kcp.Listener
 }
 
 func Listen(cfg *conf.KCP, pConn *socket.PacketConn) (tnet.Listener, error) {
@@ -23,7 +22,7 @@ func Listen(cfg *conf.KCP, pConn *socket.PacketConn) (tnet.Listener, error) {
 		return nil, err
 	}
 
-	return &Listener{packetConn: pConn, cfg: cfg, listener: l}, nil
+	return &Listener{cfg: cfg, listener: l}, nil
 }
 
 func (l *Listener) Accept() (tnet.Conn, error) {
@@ -44,11 +43,6 @@ func (l *Listener) Close() error {
 	var err error
 	if l.listener != nil {
 		if e := l.listener.Close(); e != nil {
-			err = e
-		}
-	}
-	if l.packetConn != nil {
-		if e := l.packetConn.Close(); e != nil && err == nil {
 			err = e
 		}
 	}
