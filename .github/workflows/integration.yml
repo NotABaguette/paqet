@@ -1,0 +1,32 @@
+name: Integration
+
+on:
+    push:
+        branches: ["**"]
+    pull_request:
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    multiclient:
+        name: One server, multiple clients
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v6
+
+            - name: Setup Go
+              uses: actions/setup-go@v6
+              with:
+                  go-version: "1.26"
+
+            - name: Install dependencies
+              run: sudo apt-get update && sudo apt-get install -y libpcap-dev iproute2
+
+            - name: Build paqet
+              run: go build -o /tmp/paqet ./cmd
+
+            - name: Run multi-client integration test
+              run: sudo env PAQET=/tmp/paqet REQS=20 bash test/integration/multiclient.sh
